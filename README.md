@@ -33,7 +33,7 @@ supports plain manifest files and helm.
 
 This whole process is referred to as a "Git Ops" repository.
 
-### Benefits of Argo CD
+### Benefits of ArgoCD
 
 Everything is defined as code from one fundamental source of truth.
 
@@ -51,4 +51,8 @@ Contorl access to git repo as a way of managing who can provision changes to inf
 Can think of ArgoCD as an extension of hte k8s API:
     - Uses existing k8s functionality
     - This enables much greater Visibility of the cluster.
+
+### Multi-cluster setup with ArgoCD (Our Setup)
+
+So we have a dedicated ArgoCD cluster which is in charge and responsible for provisioning to the other clusters.
 
