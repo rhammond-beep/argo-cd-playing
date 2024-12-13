@@ -56,3 +56,20 @@ Can think of ArgoCD as an extension of hte k8s API:
 
 So we have a dedicated ArgoCD cluster which is in charge and responsible for provisioning to the other clusters.
 
+### Running Locally
+
+To initially setup the ARGO CD namespace for a given cluster, simply follow the instructions as presented on official [ArgoCD documentation](https://argo-cd.readthedocs.io/en/stable/getting_started/#1-install-argo-cd)
+
+```
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# access ArgoCD UI
+kubectl get svc -n argocd
+kubectl port-forward svc/argocd-server 8080:443 -n argocd
+
+# login with admin user and below token (as in documentation):
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 --decode && echo
+kubectl port-forward -n argocd svc/argocd-server 8080:443
+```
+
