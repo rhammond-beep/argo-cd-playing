@@ -11,5 +11,6 @@ data:
   #   apiKey - allows generating API keys
   #   login - allows to login using UI
   accounts.rupert_hammond: login
+  accounts.smokey_smotey: login
   # disables user. User is enabled by default
   # accounts.alice.enabled: "false"
