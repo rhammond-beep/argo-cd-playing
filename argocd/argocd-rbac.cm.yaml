@@ -48,7 +48,6 @@ data:
     p, role:admin, gpgkeys, create, *, allow
     p, role:admin, gpgkeys, delete, *, allow
     p, role:admin, exec, create, */*, allow
-    p, role:admin, exec, create, */*, allow
     g, role:admin, role:readonly
     g, admin, role:admin
     g, rupert_hammond, role:readonly
