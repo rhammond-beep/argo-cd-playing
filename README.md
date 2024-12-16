@@ -91,4 +91,75 @@ ArgoCD with poll the repository every 3 minutes. If we needed immediate changes,
 
 syncPolicy -> These set of attributes enables you to configure the synchronisation behaviour of the upsteram service repository 
 
+## Configuring Users and RBAC
+
+Users can be proviosned user the ArgoCD cli, simply run `argocd login <TARGET_INSTANCE>` where target instance is a publically reachable IP address.This will prompt an interactive login from which you will want to login using administrator credentials to ensure that you have the right level of privilage to add and remove users. 
+
+RBAC feaure enables resrictions of access to Argo CD resources. An important thing to note is that ArgoCD does not
+have it's own user management system and has only one built-in user, 'admin'. 
+
+- A prerequisite for RBAC is either having SSO or local users configured. 
+- Once this is done, additional RBAC roles may be defined, and sso groups or local isers can then be mapped to their roles.
+
+- once installed ArgoCD has one built-in "admin" user that has full access to the entire system.
+- Should only use admin for initial configuration.
+- Shoud then switch to using either SSO or local user setup depending on usecase.
+
+
+There are two main components where RBAC configuration can be defined:
+    - global config map (argo-rbac-cm.yaml)
+    - AppProject's roles
+
+There are two basic built-in Roles:
+    - role:readonly 
+    - role:admin: unrestricted access to all resources
+
+When checking out the default policy.csv file can see the induvidual policies which have been assigned to the two default groups:
+admin and readonly.
+
+    in this project we have two files which configure RBAC policy and users:
+    './argocd/argocd-cm.yaml' and './argocd/argocd-rbac.cm.yaml' 
+
+These are both config map resources which needs to be deployed into the given k8s environment. 
+
+### RBAC Model Structure
+
+Group: Enables an ArgoCD admin to assign authenticated users/groups to internal roles.
+
+`Syntax: g,<user/group>, <role>`
+
+- <user/group>: The entity to whom the role will be assigned. It can be a local user or a user authenticated with SSO. 
+    when SSO is used, the user will be based on the 'sub' claims, whike the group is one of the values returned by the 
+    scoped configuration
+- <role>: The internal roles to which the entity will be assigned.
+
+Policy: Assign permissions to a given entity.
+
+`Syntax: p, <role/user/group>, <resource>, <action>, <object>, <effect>`
+
+- <role/user/group>: The entity to whom the policy will be assigned
+- <resource>: The type of resource on which the action will be performed
+- <action>: The operation that is being performed on the given resource
+- <object>: The object identifier representing the resource on which the action is performed. 
+            Depending on the resource, the object's format will vary.
+-<Effect>: Whether this policy should grant or restrict the operation on the target object (`allow` or `deny`)
+
+Here is an example policy which would grant example-user access to 'get' any applications, but only be able to see logs in 'my-app' application 
+as part of the 'example-project' project.
+
+```
+p, example-user, applications, get, *, allow
+p, example-user, logs, get, example-project/my-app, allow
+
+```
+
+The `update` and `delete` actions,when granted on an application, will allow the user to perform
+the operation on the application itself and all of it's resources. 
+
+To do so, when the action if performed on the application's resource, the <action> will have the
+`<action>/<group>/<kind>/<ns>/<name>` format
+
+For instance, to grant access to example-user to only have the ability to delete pods in the prod-app Application, the policy could be:
+
+`p, example-user, applications, delete/*/Pod/*/*/, default/prod-app allow`
 
