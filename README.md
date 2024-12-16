@@ -73,3 +73,22 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
 kubectl port-forward -n argocd svc/argocd-server 8080:443
 ```
 
+### Structure of an application.yaml file
+
+An application.yaml file specifies a set of configuration for a service for ArgoCD to monitor, this will usually be 
+some meta data pertaining to a git-repository in which the service infrastructure is defined. Here is a brief description of the anatomy of 
+an application.yaml file:
+
+repoURL -> the public url in which the service to monitor lives
+targetRevision -> the hash corresponding to the commit to checkout and deploy
+path -> This is an important one, path defines where to find the given IaC as code definition (usually another application.yaml file, or some
+other declarative language) is housed. The benefit of this is we can host many different service specifications within the same repository. (Allowing for one or 
+many infrastructure repository definitions) 
+    As a sidenote on this, I think all a "service" actually is, is a constant IP which acts as a concrete and unchanging frontdoor to a set of running pods, which are in turn proviosned/managed by a deployment specification. The reason for this, is we should expect that pods are destroyed and created a lot. At which point they are assigned a unique IP address within the cluster. If we have some downstream pods running somewhere else within the cluster; it's essential that they are able to discover the new pods while remaining resiliant to changing IP addresses of the endpoint pods. 
+
+ArgoCD with poll the repository every 3 minutes. If we needed immediate changes, it's possible to configure 
+    a webhook for instant results.
+
+syncPolicy -> These set of attributes enables you to configure the synchronisation behaviour of the upsteram service repository 
+
+
