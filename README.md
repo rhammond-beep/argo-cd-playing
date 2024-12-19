@@ -163,3 +163,230 @@ For instance, to grant access to example-user to only have the ability to delete
 
 `p, example-user, applications, delete/*/Pod/*/*/, default/prod-app allow`
 
+## RBAC Roles Policy Provisioning/Configuration
+
+- So it seems like the default readonly policy just get applied to everyone and you cannont 
+take away whatever policies have been specified in the default, hence we should probably define something very restrictive and then 
+layer permissions on top of that, a straight quote from the documentation:
+
+ ```
+Restricting Default Permissions
+
+All authenticated users get at least the permissions granted by the default policies. This access cannot be blocked by a deny rule. It is recommended to create a new role:authenticated with the minimum set of permissions possible, then grant permissions to individual roles as needed.
+
+```
+I've added in a default "authenticated" role which contains a smaller set of readonly permissions than what comes out of the box.
+
+This also means that the given users in question can't see other user accounts.
+
+So on the journey to figure out how to get this webshell working, I've stumbled into the "Role" resource, this is an element of k8s which
+I am fundamentally unaware of, so we'll be runinng down this road.
+
+I think the problem is that the argocd service doesn't have the correct permission to go into the namespace and exec into pods, it can only 
+do that with pods running in it's own namespace. 
+
+## [k8s Reading](https://kubernetes.io/docs/concepts/overview/) - Might as well start at the beginning here
+
+Kubernetes is a portable, extensible, open source platform for managing containerised workloads and serviecs, that facilitates both declarative configuration and automation. 
+
+The name Kuberenetes originates form Greek, meaning helmsman or pilot.
+
+Why we need k8s:
+
+1) Service discovery and load balancing
+2) Storage orchestration 
+3) Automated rollout and rollbacks 
+4) Automated Bin Packing
+5) Self-healing
+6) Secret and configuration management
+7) Batch execution 
+8) Horizontal Scaling
+9) IPv4 and IPv6 Dual stack
+
+### Objects 
+
+k8s objects are persistent entities in the kubernetes sustem. k8s uses these entities to represent the state of your cluster.
+Specifically they can describe:
+
+1) What contarised applications are running (and on what nodes)
+2) The resources avaliable to those applications
+3) The policies around how those applications behave, such as restart policies, upgrades and fault-tolerance
+
+A k8s object is a "record of intent". Once you have ordered that an object should exist (through some declarative specification to the control plane)
+the k8s system will work to ensure that such an object exists (to run the gap between actual and desired state)
+
+To work with k8s objects, we use the Kuberenetes API; the core element of the control plane.
+
+In k8s, a "Deployment" is an object that represents an application running on our cluster. When such a deployment is created, you might choose to set the `spec` to specify that three pod replicas of the application will run at a given time. 
+
+When you create a k8s object, you must provide the objecct spec that describes it's desired state (the fields pertaining to each spec can and do vary), 
+as well as some general metadata about the object such as it's name. 
+
+#### Controllers
+
+Controllers are control loops that watch the state of the cluster, then make or request changes where needed. Each controller tries to move the current 
+state towards the desired state.
+
+A controller tracks at least one k8s resource type; in it's mission to improve the state of a cluster by reponsding to internal or external signals (routed through 
+the k8s API), a controller might carry out some action itself. More commonly however, a controller will send messages to the API server that have nice side-effects. 
+
+The Job controller is an example of a built in controller. Built-in controllers manage state by interacting with the cluster API server.
+
+As a tenent of its design, Kubernetes uses lots of controllers that each manage some definitive aspect of cluster state. More commonly, a particular control loop 
+(controller) uses one kind of resource as its desired state, and has different kind of resource that it manages to make that desired state happen. For example, a cotroller for "jobs" tracks Job objects (to discover new work) and Pod objects (to run the jobs, and then to see when the work is finished). In this case something else creates the Jobs, the Job controller creates Pods.
+
+It tends to be more useful to have many smaller, simpler controllers rather one, monolithic set of control loops that are inter-linked. Controllers can fail, so k8s is designed to account for this.
+
+There can be several controllers that create or update the same kind of object. Behind the scenes, kuberenetes controllers make sure that they only pay attention to the resources linked to their controlling resource.
+
+As an example: Can have Deployments and Jobs; these both will create Pods. The Job controller does not delete the Pods that your Deployment created, because there is information (labels) the controllers can use to tell those pods apart.
+
+
+## Service Accounts
+
+A service account is a type of non-human account that, in k8s, provides a distinct identity within a kubernetes cluster.
+Application Pods, system components and entities inside and outside the cluster can use a specific ServiceAccounts' credentials to identify as that ServiceAccount. This identity is useful in a varierty of situations, including authenticating to the API server or implementing identity-based security policies. 
+
+Service accounts are:
+
+- Namespaced
+- Lightweight 
+- Portable 
+
+User accounts are authenticated human users in the cluster; service accounts are inherintly different given that they represent an underlying machine/automated entity wishing to perform some action.
+
+When you create a cluster, Kuberenetes automatically creates a ServiceAccount object named "default" for every namespace in your cluster. The default service accounts in each namespace gets no permissions by default other than the default API discovery permissions that k8s grants to alll authenticated principles if RBAC is enabled. 
+
+If you deploy a pod in a namespace, and you don't manually assign a ServiceAccount to the pods, k8s will assign the default ServiceACcount for the namespace to the pod.
+
+Use Cases:
+
+As a general guideline, you can use service accounts to provide identities in the following scenarios:
+
+1) Your pods need ot comunicate with the k8s API server, for example:
+    - you're running ArgoCD within your cluster to manage deploying images as part of a gitops Continous delivery pipeline 
+        the pod running the argocd service will need to talk to the k8s API to schedule jobs provisioning new resources or editing existing deploymnets/services/Any 
+        k8s object for which the upstream repostiory ArgoCD is tasked with deploying.
+    - Granting cross-namespace access, such as allowing a Pod in namespace "example" to read, list and watch for Lease objects in the kube-node-lease namespace.
+    - Pods need to communicate with some external service. 
+    - Authenticating a private image registry 
+
+To use a k8s service account, do the following:
+1) create a ServiceAccount Object using kubectl or a manifest that defines the object
+2) grant permissions to the ServiceAccount object using an authorization mechanism such as RBAC
+3) Assign the ServiceAccount object to Pods during the Pod creation
+
+It looks like I might have to read through the following articles to get more of an idea of what I need/don't need:
+    1) [Configure Service Account for Pods](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/)
+    2) [Using RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/) 
+
+It ended up being easy, all I had to do was edit the clusterRole resource with `kubectl edit clusterRole argocd-server`, 
+adding in the following attributes:
+
+```
+- apiGroups:
+  - ""
+  resources:
+  - pods/exec
+  verbs:
+  - create
+```
+Assuming the exec.enabled: "true" is present in the config map resource, we are chilling!!
+
+So what is a cluster role then - a non-namespaced resource!! As I thought, so this role is avaliable across namespaces and clusters!!
+
+## SSO approach
+
+- Can Connect to Authentication provider using OpenID Connect. <- What we want Dex is a tool used to integrate with protocols which don't natively support OIDC
+- The way this is configured is using a ConfigMap in ArgoCD (We can just add in the settings for the existing one)
+- will need to read the [integration-article](https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#existing-oidc-provider) at some stage today 
+
+Initially going through an old way of doing it using Dex - *DEX IS NOT SUPPORTED*
+
+Define RBAC roles within an actual project manifest, is this something that we acutally need to do? I wouldn't have thought so.
+We either want to grant readonly access to all cross-project applications, or admin access.
+
+It's cool that we can define AppProject as a resource type to apply into ArgoCD, from which point you can define policies as an attribute on the project. Presumably these privilages are addative on top of whatever we define in the global RBAC config map?
+
+Requesting Additional ID token clamins 
+
+- Not all OIDC providers support a special "groups" scope: Microsoft being one of those providers; I:E - will return group membership with the default requestedScopes
+
+Retrieving Groups when not in the token:
+
+Some ODIC providers don't return the group information for a user in the ID token, even if explicitly request using the "requestedIDTokenClamins setting (Okta for example). Conversely, they provide the groups on the user info endpoint. With the groups on the userinfo endpoint instead. With the following config. ArgoCD queries the user info endpoint during login for group information for a user:
+
+```
+oidc.config | 
+    enableUserInfoGroups: true
+    userInforPath: /userInfo
+    userInforCacheExpiration: "15m"
+```
+As a nice little side bonus, we can also configure a custom logout URL for our OIDC provider:
+
+Optionally, if our OIDC provider exposes a logout API and we wish to configure a custom logout URL for the purposes of invalidating any active session post logout, you can do so by specifying it as follows:
+
+```
+  oidc.config: |
+    name: example-OIDC-provider
+    issuer: https://example-OIDC-provider.example.com
+    clientID: xxxxxxxxx
+    clientSecret: xxxxxxxxx
+    requestedScopes: ["openid", "profile", "email", "groups"]
+    requestedIDTokenClaims: {"groups": {"essential": true}}
+    logoutURL: https://example-OIDC-provider.example.com/logout?id_token_hint={{token}}
+```
+
+*Will need to check this with Mike to see if we acutally need this*
+
+## [Okta Dev on OAuth2 and OpenID Connect Protocols](https://www.youtube.com/watch?v=996OiexHze0&ab_channel=OktaDev)
+
+Could use with a refresh on OIDC, so taking one now with Nate on the good old 1.5x speed.
+
+Single sign on across sites can be implemeneted with a protocol called SAML. (One master account across multiple sites), 
+This seems like it was the prominent way of solving the problem before OIDC connect standard and implementations became avaliable.
+
+OAuth-flow is really good at solving the delegated authorization problem! Some app wants to access data on your behalf, You as the resource
+owner can specify a set of scopes which define what exactly the 3rd party app can do on your behalf. 
+
+The most common kind of flow here would be the authorization code flow. It's also pretty secure and can be broken down as follows:
+
+1) user goes to login to a given app.
+2) they choose an option such as "sign in with google, miscrosoft, github account etc..."
+3) Prompt the user with what permissions the app requires (access to email address, contacts etc...)
+4) User accepts which then informs the information the 3rd party app goes to the IP provider with.
+5) User is re-directed to the 3rd party site to login (sometimes, depending on the IP policy, a login can be cached for a very long time, so might not need to login for some time)
+6) After user has logged in, call the provided callback URL with an authorisation code. 
+7) 3rd party app then uses the authorization code to talk to the upstream IP server to then get a JWT token with the claims dispensed. This token is signed by the IP/Authorization Server so if it is tampered with to add extra claims, the signature will be invalid and the IP will reject an attempted operation.
+8) I believe code exchange is done on the backchannel (so the browser can't see, I:E no maclicious code can try and nab the code and get the token before 3rd party ap can perform the desired transaction)
+
+Oauth2 seems to be the primary protocol to perform delegated authorization. 
+
+OAuth2 was never designed for authentication! Problems with the protocol:
+
+1) No standardised way of getting the user's information
+2) Every implementation is different (lack of standard approach)
+3) No common set of scopes.
+
+Oauth 2.0 terminology:
+
+- Resource Owner: The person who owns the data in which the 3rd party app is trying to get access to
+- Client: The 3rd party app
+- Authorization Server: The stateful server which Implements the OAuth2 flow 
+- Resource Server: The server containing the protected resources in which the client wants a valid claim to access
+- Authorization grant: The set of things the client is allowed to do
+- Redirect URI: Where to redirect to on success login (Usually points back to some URL within the client domain)
+- Access Token: The token containing a list of clamins regarding who the client it and what it's allowed to do. (Encodes this information into the request being made to the resource server)
+
+
+In our case Azure SSO is being used primarily the authentication mechanism; we can think of this as the "Authentication and Authorization Server" in which OAuth2 flows are argumented to perform. In the context of our usecase, ArgoCD knows how the policies assigned to the groups in which the user is derrived from, needs to be applied. Fundamentally Azure Performs the functionality of Authentication, I:E confirming that the user is who they say they are in the form of a JWT token, and authorization, by also providing the groups either through the userInfo endpoint or as directly part of the token. But then ArgoCD understands what the user can do with those authenticated claims (The set of allows actions to perform with ArgoCD). This leads us to an interesting problem: What is the authorization server in this case? Based on my above definition it must be Azure OpenID service.
+
+- I believe that purposes ArgoCD is the Resource Server. Because that's the thing the client (in this case you, me or someone on the engineering team's web-browser, that is going to get access to the ArgoCD platform) and we configure what policies are applied to specific groups on ArgoCD as well. Azure SSO just verfies that the user is who they say they are, and dispenses what they can do in the form of groups, ArgoCD will figure out based on the groups they belong to, what exactly they can do.
+
+OpenID Connect is for authentication! As I thought - Small layer on top of OAuth 2 Adding:
+
+1) ID Token
+2) UserInfo endpoint for getting more user info
+3) Standarised set of scopes
+4) Standarised implementation.
+
